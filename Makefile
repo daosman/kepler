@@ -19,7 +19,7 @@ else
 endif
 
 ifdef BUILDER_IMAGE
-	BUILDER_IMAGE := $(BUILD_IMAGE)
+	BUILDER_IMAGE := $(BUILDER_IMAGE)
 else
 	BUILDER_IMAGE := quay.io/sustainable_computing_io/kepler_builder:ubi-8.6-bcc-0.24-go1.18
 endif
@@ -116,6 +116,24 @@ build_containerized: genbpfassets tidy-vendor format
 	$(CTR_CMD) tag $(IMAGE_REPO)/kepler:$(SOURCE_GIT_TAG)-linux-$(GOARCH) $(IMAGE_REPO)/kepler:$(IMAGE_TAG)
 
 .PHONY: build_containerized
+
+### build container ###
+build_ocp: genbpfassets tidy-vendor format
+	@if [ -z '$(CTR_CMD)' ] ; then echo '!! ERROR: containerized builds require podman||docker CLI, none found $$PATH' >&2 && exit 1; fi
+	echo BIN_TIMESTAMP==$(BIN_TIMESTAMP)
+
+	$(CTR_CMD) build --authfile $(PULL_SECRET) -t $(IMAGE_REPO)/kepler:$(SOURCE_GIT_TAG)-linux-$(GOARCH) \
+		-f $(SRC_ROOT)/build/Dockerfile.ocp \
+		--build-arg SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) \
+		--build-arg BIN_TIMESTAMP=$(BIN_TIMESTAMP) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
+		--platform="linux/$(GOARCH)" \
+		.
+
+	$(CTR_CMD) tag $(IMAGE_REPO)/kepler:$(SOURCE_GIT_TAG)-linux-$(GOARCH) $(IMAGE_REPO)/kepler:$(IMAGE_TAG)
+
+.PHONY: build_ocp
 
 push-image:
 	$(CTR_CMD) push $(IMAGE_REPO)/kepler:$(IMAGE_TAG)

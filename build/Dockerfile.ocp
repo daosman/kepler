@@ -1,0 +1,42 @@
+ARG BUILDER_IMAGE
+
+FROM ${BUILDER_IMAGE} AS builder
+
+ARG BIN_TIMESTAMP
+ARG SOURCE_GIT_TAG
+
+ARG KERNEL_VERSION
+ENV KERNEL_VERSION=$KERNEL_VERSION
+LABEL name=kepler-builder
+
+WORKDIR /kepler
+
+RUN dnf install -y golang
+COPY . .
+RUN mkdir -p data
+
+# Build kepler
+RUN SOURCE_GIT_TAG=$SOURCE_GIT_TAG BIN_TIMESTAMP=$BIN_TIMESTAMP  CGO_ENABLED=1 GOOS=linux GOARCH=amd64 make build
+RUN ls ./_output/bin
+
+RUN rpm -ql kernel-rt-devel-$KERNEL_VERSION | xargs tar -zcf /kepler/kernel-rt-devel-$KERNEL_VERSION.tgz
+
+# build image
+FROM quay.io/sustainable_computing_io/kepler_base:cuda-11.8.0-base-ubi8-bcc-0.24
+
+ARG KERNEL_VERSION
+ENV KERNEL_VERSION=$KERNEL_VERSION
+COPY --from=builder /kepler/_output/bin/kepler /usr/bin/kepler
+
+RUN mkdir -p /var/lib/kepler/data
+COPY --from=builder /kepler/data/normalized_cpu_arch.csv /var/lib/kepler/data/normalized_cpu_arch.csv
+COPY --from=builder /kepler/kernel-rt-devel-$KERNEL_VERSION.tgz /tmp/
+
+RUN tar xf /tmp/kernel-rt-devel-$KERNEL_VERSION.tgz -C /
+RUN rm /tmp/kernel-rt-devel-$KERNEL_VERSION.tgz
+
+ADD https://raw.githubusercontent.com/sustainable-computing-io/kepler-model-server/main/tests/test_models/DynComponentModelWeight/CgroupOnly/ScikitMixed/ScikitMixed.json /var/lib/kepler/data/ScikitMixed.json
+
+ADD https://raw.githubusercontent.com/sustainable-computing-io/kepler-model-server/main/tests/test_models/AbsComponentModelWeight/Full/KerasCompWeightFullPipeline/KerasCompWeightFullPipeline.json /var/lib/kepler/data/KerasCompWeightFullPipeline.json
+
+ENTRYPOINT ["/usr/bin/kepler"]
